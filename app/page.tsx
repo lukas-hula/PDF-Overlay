@@ -46,6 +46,28 @@ export default function PDFEditor() {
     setWorker();
   }, []);
 
+  // CENTRÁLNÍ LOGOVACÍ FUNKCE
+  const logAction = async (action: string, details: any = {}) => {
+    const logData = {
+      action,
+      fileName: pdfFile?.name || 'no-file',
+      elementsCount: elements.length,
+      details,
+    };
+
+    console.log(`[CLIENT LOG] ${action}`, logData);
+
+    try {
+      await fetch('/api/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logData),
+      });
+    } catch (err) {
+      console.error("Chyba při odesílání logu na server");
+    }
+  };
+
   const updateElement = (id: number, updates: Partial<EditorElement>) => {
     setElements(prev => prev.map(el => el.id === id ? { ...el, ...updates } : el));
   };
@@ -54,12 +76,14 @@ export default function PDFEditor() {
     const newEl: EditorElement = { id: Date.now(), type: 'text', text: "Nový text", x: 100, y: 100, page: pageNumber, fontSize: 16, color: [0, 0, 0], isBold: false };
     setElements([...elements, newEl]);
     setSelectedId(newEl.id);
+    logAction("ADD_TEXT", { page: pageNumber });
   };
 
   const addShape = () => {
     const newEl: EditorElement = { id: Date.now(), type: 'shape', x: 150, y: 150, width: 100, height: 50, page: pageNumber, color: [0.9, 0.9, 0], opacity: 0.5 };
     setElements([...elements, newEl]);
     setSelectedId(newEl.id);
+    logAction("ADD_SHAPE", { page: pageNumber });
   };
 
   const handlePointerDown = (e: React.PointerEvent, el: EditorElement) => {
@@ -79,6 +103,7 @@ export default function PDFEditor() {
     const onPointerUp = () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      logAction("MOVE_ELEMENT", { id: el.id, type: el.type, finalX: el.x, finalY: el.y });
     };
 
     window.addEventListener('pointermove', onPointerMove);
@@ -102,6 +127,7 @@ export default function PDFEditor() {
     const onResizeUp = () => {
       window.removeEventListener('pointermove', onResizeMove);
       window.removeEventListener('pointerup', onResizeUp);
+      logAction("RESIZE_SHAPE", { id: el.id, finalWidth: el.width, finalHeight: el.height });
     };
 
     window.addEventListener('pointermove', onResizeMove);
@@ -110,6 +136,8 @@ export default function PDFEditor() {
 
   const downloadPDF = async () => {
     if (!pdfFile) return;
+    logAction("EXPORT_START", { elementsCount: elements.length });
+
     const existingPdfBytes = await pdfFile.arrayBuffer();
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
     const pages = pdfDoc.getPages();
@@ -132,7 +160,6 @@ export default function PDFEditor() {
     const pdfBytes = await pdfDoc.save();
     const link = document.createElement("a");
     
-    // Fix pro Vercel build: explicitně přetypujeme uint8array pro BlobPart
     // @ts-ignore
     const pdfBlob = new Blob([pdfBytes], { type: "application/pdf" });
     
@@ -142,6 +169,8 @@ export default function PDFEditor() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(link.href);
+    
+    logAction("EXPORT_SUCCESS");
   };
 
   if (!isClient) return null;
@@ -155,6 +184,7 @@ export default function PDFEditor() {
           {pdfFile && (
             <button 
               onClick={() => {
+                logAction("CHANGE_PDF_CLICKED");
                 setPdfFile(null);
                 setElements([]);
                 setSelectedId(null);
@@ -196,7 +226,12 @@ export default function PDFEditor() {
                     <>
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Obsah textu</label>
-                        <textarea className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={el.text} onChange={(e) => updateElement(el.id, { text: e.target.value })} />
+                        <textarea 
+                          className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                          value={el.text} 
+                          onChange={(e) => updateElement(el.id, { text: e.target.value })} 
+                          onBlur={(e) => logAction("EDIT_TEXT_CONTENT", { length: e.target.value.length })}
+                        />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Písmo ({el.fontSize}px)</label>
@@ -221,7 +256,10 @@ export default function PDFEditor() {
                       ].map(c => (
                         <button 
                           key={c.n} 
-                          onClick={() => updateElement(el.id, { color: c.v as [number,number,number] })} 
+                          onClick={() => {
+                            updateElement(el.id, { color: c.v as [number,number,number] });
+                            logAction("COLOR_PRESET_CLICK", { colorName: c.n });
+                          }} 
                           className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 ${JSON.stringify(el.color) === JSON.stringify(c.v) ? 'border-blue-500 shadow-md' : 'border-slate-200'}`} 
                           style={{ backgroundColor: `rgb(${c.v[0]*255}, ${c.v[1]*255}, ${c.v[2]*255})` }}
                           title={c.n}
@@ -240,6 +278,7 @@ export default function PDFEditor() {
                             const b = parseInt(hex.slice(5, 7), 16) / 255;
                             updateElement(el.id, { color: [r, g, b] });
                           }}
+                          onBlur={(e) => logAction("COLOR_PICKER_FINISH", { hex: e.target.value })}
                         />
                         <div className="w-7 h-7 rounded-full border-2 border-slate-200 flex items-center justify-center bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-sm">
                           <Palette size={12} className="text-white" />
@@ -248,8 +287,16 @@ export default function PDFEditor() {
                     </div>
                   </div>
 
-                  {el.type === 'text' && <button onClick={() => updateElement(el.id, { isBold: !el.isBold })} className={`w-full py-2 rounded-lg border text-sm font-bold transition ${el.isBold ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200'}`}>Tučné písmo</button>}
-                  <button onClick={() => { setElements(elements.filter(e => e.id !== el.id)); setSelectedId(null); }} className="w-full py-2 rounded-lg text-red-500 border border-red-100 bg-red-50 hover:bg-red-100 transition text-sm flex items-center justify-center gap-2 font-bold uppercase tracking-tighter">ODSTRANIT</button>
+                  {el.type === 'text' && <button onClick={() => {
+                    const nextBold = !el.isBold;
+                    updateElement(el.id, { isBold: nextBold });
+                    logAction("TOGGLE_BOLD", { enabled: nextBold });
+                  }} className={`w-full py-2 rounded-lg border text-sm font-bold transition ${el.isBold ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-slate-200'}`}>Tučné písmo</button>}
+                  <button onClick={() => { 
+                    logAction("DELETE_ELEMENT", { type: el.type });
+                    setElements(elements.filter(e => e.id !== el.id)); 
+                    setSelectedId(null); 
+                  }} className="w-full py-2 rounded-lg text-red-500 border border-red-100 bg-red-50 hover:bg-red-100 transition text-sm flex items-center justify-center gap-2 font-bold uppercase tracking-tighter">ODSTRANIT</button>
                 </div>
               ))}
             </div>
@@ -262,7 +309,12 @@ export default function PDFEditor() {
               <div className="bg-blue-50 p-6 rounded-full mb-4 text-blue-500"><Upload size={48} /></div>
               <h2 className="text-2xl font-bold text-slate-800 mb-2">Nahrát dokument</h2>
               <p className="text-slate-500 mb-8 text-balance font-medium">Vyberte PDF soubor, do kterého chcete přidat nové prvky.</p>
-              <input type="file" accept="application/pdf" onChange={(e) => e.target.files && setPdfFile(e.target.files[0])} id="pdf-in" className="hidden" />
+              <input type="file" accept="application/pdf" onChange={(e) => {
+                if(e.target.files && e.target.files[0]) {
+                  setPdfFile(e.target.files[0]);
+                  logAction("UPLOAD_PDF", { name: e.target.files[0].name, size: e.target.files[0].size });
+                }
+              }} id="pdf-in" className="hidden" />
               <label htmlFor="pdf-in" className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-xl font-bold hover:bg-black transition shadow-xl block uppercase tracking-wide">Vybrat soubor</label>
             </div>
           ) : (
