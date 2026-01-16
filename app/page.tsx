@@ -131,9 +131,17 @@ export default function PDFEditor() {
 
     const pdfBytes = await pdfDoc.save();
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([pdfBytes], { type: "application/pdf" }));
+    
+    // Fix pro Vercel build: explicitně přetypujeme uint8array pro BlobPart
+    // @ts-ignore
+    const pdfBlob = new Blob([pdfBytes], { type: "application/pdf" });
+    
+    link.href = URL.createObjectURL(pdfBlob);
     link.download = `editovane_${pdfFile.name}`;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
   };
 
   if (!isClient) return null;
@@ -147,12 +155,11 @@ export default function PDFEditor() {
           {pdfFile && (
             <button 
               onClick={() => {
-                // Úplný reset všech stavů
                 setPdfFile(null);
-                setElements([]);      // Vymaže všechny přidané texty a tvary
-                setSelectedId(null);  // Vyčistí postranní panel
-                setNumPages(0);       // Resetuje počítadlo stran
-                setPageNumber(1);     // Vrátí navigaci na první stranu
+                setElements([]);
+                setSelectedId(null);
+                setNumPages(0);
+                setPageNumber(1);
               }} 
               className="ml-4 flex items-center gap-2 text-[10px] bg-slate-800 hover:bg-red-900 px-3 py-1.5 rounded-full transition-all border border-slate-700 text-slate-400 hover:text-white uppercase font-bold tracking-widest"
             >
