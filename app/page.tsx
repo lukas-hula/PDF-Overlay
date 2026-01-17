@@ -91,7 +91,7 @@ export default function PDFEditor() {
     }
 
     const pdfBytes = await pdfDoc.save();
-    const blob = new Blob([pdfBytes as any], { type: "application/pdf" });
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `export_${pdfFile.name}`;
@@ -120,7 +120,7 @@ export default function PDFEditor() {
         {pdfFile && (
           <div className="flex items-center gap-4">
             <button onClick={() => {
-                const newEl: EditorElement = { id: Date.now(), type: 'text', text: "Upravitelný text", x: 100, y: 100, page: pageNumber, fontSize: 24, fontFamily: 'roboto', color: [0, 0, 0], isBold: false, isItalic: false };
+                const newEl: EditorElement = { id: Date.now(), type: 'text', text: "Text", x: 100, y: 100, page: pageNumber, fontSize: 24, fontFamily: 'roboto', color: [0, 0, 0], isBold: false, isItalic: false };
                 setElements([...elements, newEl]); setSelectedId(newEl.id);
             }} className="bg-blue-600 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all hover:bg-blue-700 active:scale-95"><Type size={16} /> Text</button>
             <button onClick={() => {
@@ -142,11 +142,11 @@ export default function PDFEditor() {
                    {el.type === 'text' && (
                      <>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Obsah</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block font-mono text-center">Obsah</label>
                             <textarea className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={el.text} onChange={(e) => updateElement(el.id, { text: e.target.value })} />
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block font-mono">Písmo</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block font-mono text-center">Písmo</label>
                             <select className="w-full border border-slate-200 rounded-lg p-2 text-xs bg-slate-50 outline-none" value={el.fontFamily} onChange={(e) => updateElement(el.id, { fontFamily: e.target.value })}>
                                 {FONT_OPTIONS.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                             </select>
@@ -156,14 +156,14 @@ export default function PDFEditor() {
                             <button onClick={() => updateElement(el.id, { isItalic: !el.isItalic })} className={`flex-1 py-2 rounded-lg border text-[10px] font-bold transition-all ${el.isItalic ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}><Italic size={12} className="inline mr-1" /> ITALIC</button>
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block tracking-tight">Velikost: {el.fontSize}px</label>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block tracking-tight text-center">Velikost: {el.fontSize}px</label>
                             <input type="range" min="8" max="150" className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-600" value={el.fontSize} onChange={(e) => updateElement(el.id, { fontSize: parseInt(e.target.value) })} />
                         </div>
                      </>
                    )}
                    {el.type === 'shape' && (
                      <div>
-                       <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Průhlednost: {Math.round((el.opacity || 0) * 100)}%</label>
+                       <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block text-center">Průhlednost: {Math.round((el.opacity || 0) * 100)}%</label>
                        <input type="range" min="0.1" max="1" step="0.1" className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-orange-600" value={el.opacity} onChange={(e) => updateElement(el.id, { opacity: parseFloat(e.target.value) })} />
                      </div>
                    )}
@@ -194,7 +194,6 @@ export default function PDFEditor() {
             <div className="bg-white p-16 rounded-[40px] shadow-2xl text-center border-4 border-dashed border-slate-300 max-w-lg w-full mt-10">
               <Upload size={48} className="mx-auto text-blue-500 mb-4" />
               <h2 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">PDF Overlay Editor</h2>
-              {/* ŠEDÝ TEXT ZDE: */}
               <p className="text-slate-400 text-sm mb-6 font-medium">Nahrajte dokument a začněte upravovat.</p>
               <input type="file" accept="application/pdf" onChange={(e) => { if(e.target.files?.[0]) setPdfFile(e.target.files[0]); }} id="pdf-in" className="hidden" />
               <label htmlFor="pdf-in" className="cursor-pointer bg-slate-900 text-white px-10 py-4 rounded-xl font-bold inline-block hover:bg-black transition-all shadow-xl uppercase tracking-widest text-xs">Vybrat dokument</label>
@@ -225,6 +224,20 @@ export default function PDFEditor() {
                         }}>{el.text}</span>
                     ) : (
                         <div className="w-full h-full" style={{ backgroundColor: `rgb(${el.color[0]*255},${el.color[1]*255},${el.color[2]*255})`, opacity: el.opacity }} />
+                    )}
+
+                    {/* RESIZE HANDLE - Pouze pro vybraný prvek a typ 'shape' */}
+                    {selectedId === el.id && el.type === 'shape' && (
+                        <div 
+                            onPointerDown={(e) => {
+                                e.stopPropagation();
+                                const sX = e.clientX, sY = e.clientY, iW = el.width || 0, iH = el.height || 0;
+                                const onMove = (mE: PointerEvent) => updateElement(el.id, { width: Math.max(10, iW + (mE.clientX - sX)), height: Math.max(10, iH + (mE.clientY - sY)) });
+                                const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+                                window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp);
+                            }}
+                            className="absolute bottom-0 right-0 w-4 h-4 bg-blue-600 cursor-nwse-resize z-[110] rounded-tl-sm shadow-md flex items-center justify-center border border-white"
+                        />
                     )}
                   </div>
                 ))}
